@@ -4,11 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
+	"log"
+	"net/mail"
+	"os"
+	"strings"
+	"time"
 
 	"GameStoreAPI/internal/model"
 	"GameStoreAPI/internal/repository"
 
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -16,26 +21,52 @@ const (
 	MinPasswordLen = 8
 )
 
-var (
-	emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
-)
-
 type AuthService struct {
-	Users    *repository.AuthRepository
-	Customer *repository.CustomerRepository // for auto-create
+	Auths          *repository.AuthRepository
+	Customer       *repository.CustomerRepository
+	EmailValidator EmailValidator
+
+	Mailer     EmailSender
+	VerifyRepo *repository.EmailVerificationRepository
 }
 
-func NewAuthService(u *repository.AuthRepository, cr *repository.CustomerRepository) *AuthService {
-	return &AuthService{Users: u, Customer: cr}
+func NewAuthService(
+	authRepo *repository.AuthRepository,
+	customerRepo *repository.CustomerRepository,
+	emailValidator EmailValidator,
+	mailer EmailSender,
+	verifyRepo *repository.EmailVerificationRepository,
+) *AuthService {
+	return &AuthService{
+		Auths:          authRepo,
+		Customer:       customerRepo,
+		EmailValidator: emailValidator,
+		Mailer:         mailer,
+		VerifyRepo:     verifyRepo,
+	}
 }
 
 func (s *AuthService) validateEmail(email string) error {
+	email = strings.TrimSpace(email)
 	if email == "" {
 		return errors.New("email is required")
 	}
-	if !emailRegex.MatchString(email) {
+
+	// 1️⃣ Local syntax validation (cheap)
+	if _, err := mail.ParseAddress(email); err != nil {
 		return errors.New("invalid email format")
 	}
+
+	// 2️⃣ External validation (Abstract API)
+	if s.EmailValidator != nil {
+		if err := s.EmailValidator.Validate(
+			context.Background(),
+			email,
+		); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -48,33 +79,54 @@ func (s *AuthService) validatePassword(pw string) error {
 
 // RegisterPublic creates a user with role "user" AND creates the customer row.
 func (s *AuthService) RegisterPublic(ctx context.Context, email, password string) (int64, error) {
+
 	if err := s.validateEmail(email); err != nil {
 		return 0, err
 	}
+
 	if err := s.validatePassword(password); err != nil {
 		return 0, err
 	}
-	exists, err := s.Users.EmailExists(ctx, email)
+
+	exists, err := s.Auths.EmailExists(ctx, email)
 	if err != nil {
 		return 0, err
 	}
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+
+	authID, err := s.Auths.CreateUser(ctx, email, string(hash), "user")
+	if err != nil {
+		return 0, err
+	}
+
+	if _, err := s.Customer.Create(ctx, authID, email); err != nil {
+		return authID, err
+	}
+
 	if exists {
 		return 0, errors.New("email already registered")
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return 0, err
+
+	// Email verification
+	token := uuid.NewString()
+	exp := time.Now().Add(24 * time.Hour)
+
+	_ = s.VerifyRepo.Create(ctx, authID, token, exp)
+
+	verifyURL := os.Getenv("APP_BASE_URL") +
+		"/api/auth/verify-email?token=" + token
+
+	// Non-blocking email send
+	//go s.Mailer.SendVerificationEmail(context.Background(), email, verifyURL)
+	if err := s.Mailer.SendVerificationEmail(
+		context.Background(),
+		email,
+		verifyURL,
+	); err != nil {
+		log.Println("EMAIL SEND FAILED:", err)
 	}
-	authID, err := s.Users.CreateUser(ctx, email, string(hash), "user")
-	if err != nil {
-		return 0, err
-	}
-	// create customer row
-	if _, err := s.Customer.Create(ctx, authID, email); err != nil {
-		// If creating customer fails, you might want to rollback user creation.
-		// For now, return the authID and the error so caller can decide.
-		return authID, err
-	}
+
 	return authID, nil
 }
 
@@ -92,7 +144,7 @@ func (s *AuthService) RegisterByAdmin(ctx context.Context, email, password, role
 	if err := s.validatePassword(password); err != nil {
 		return 0, err
 	}
-	exists, err := s.Users.EmailExists(ctx, email)
+	exists, err := s.Auths.EmailExists(ctx, email)
 	if err != nil {
 		return 0, err
 	}
@@ -103,20 +155,46 @@ func (s *AuthService) RegisterByAdmin(ctx context.Context, email, password, role
 	if err != nil {
 		return 0, err
 	}
-	return s.Users.CreateUser(ctx, email, string(hash), role)
+	return s.Auths.CreateUser(ctx, email, string(hash), role)
 }
+
+var (
+	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrEmailNotVerified   = errors.New("email not verified")
+)
 
 // Login authenticates using email + password and returns the user (without passwordhash).
 func (s *AuthService) Login(ctx context.Context, email, password string) (*model.Auth, error) {
-	u, err := s.Users.GetByEmail(ctx, email)
+	u, err := s.Auths.GetByEmail(ctx, email)
 	if err != nil {
-		// do not reveal whether email exists
-		return nil, errors.New("invalid credentials")
+		return nil, ErrInvalidCredentials
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
-		return nil, errors.New("invalid credentials")
+
+	if !u.EmailVerified {
+		return nil, ErrEmailNotVerified
 	}
-	// zero out password before returning
+
+	if err := bcrypt.CompareHashAndPassword(
+		[]byte(u.PasswordHash),
+		[]byte(password),
+	); err != nil {
+		return nil, ErrInvalidCredentials
+	}
+
 	u.PasswordHash = ""
 	return u, nil
+}
+
+func (s *AuthService) VerifyEmail(ctx context.Context, token string) error {
+	authID, err := s.VerifyRepo.GetAuthID(ctx, token)
+	if err != nil {
+		return err
+	}
+
+	if err := s.Auths.SetEmailVerified(ctx, authID); err != nil {
+		return err
+	}
+
+	_ = s.VerifyRepo.Delete(ctx, token)
+	return nil
 }

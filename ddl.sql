@@ -1,3 +1,14 @@
+create table public.customer_games (
+  id bigserial not null,
+  customerid bigint not null,
+  gameid bigint not null,
+  purchased_at timestamp with time zone null default now(),
+  constraint customer_games_pkey primary key (id),
+  constraint customer_games_customerid_gameid_key unique (customerid, gameid),
+  constraint customer_games_customerid_fkey foreign KEY (customerid) references customers (customerid),
+  constraint customer_games_gameid_fkey foreign KEY (gameid) references games (gameid)
+) TABLESPACE pg_default;
+
 create table public.customers (
   customerid serial not null,
   authid integer not null,
@@ -23,6 +34,15 @@ create table public.developers (
   constraint developers_pkey primary key (developerid),
   constraint developers_authid_key unique (authid),
   constraint fk_developers_auth foreign KEY (authid) references userauth (authid)
+) TABLESPACE pg_default;
+
+create table public.email_verifications (
+  authid integer not null,
+  token text not null,
+  expires_at timestamp without time zone not null,
+  created_at timestamp without time zone null default CURRENT_TIMESTAMP,
+  constraint email_verifications_token_key unique (token),
+  constraint email_verifications_authid_fkey foreign KEY (authid) references userauth (authid)
 ) TABLESPACE pg_default;
 
 create table public.gamegenres (
@@ -116,6 +136,7 @@ create table public.userauth (
   role character varying(20) not null,
   created_at timestamp without time zone null default CURRENT_TIMESTAMP,
   deleted_at timestamp without time zone null,
+  email_verified boolean not null default false,
   constraint userauth_pkey primary key (authid),
   constraint userauth_email_key unique (email),
   constraint userauth_role_check check (
@@ -132,11 +153,3 @@ create table public.userauth (
     )
   )
 ) TABLESPACE pg_default;
-
-CREATE TABLE customer_games (
-  id BIGSERIAL PRIMARY KEY,
-  customerid BIGINT NOT NULL REFERENCES customers(customerid),
-  gameid BIGINT NOT NULL REFERENCES games(gameid),
-  purchased_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(customerid, gameid)
-);

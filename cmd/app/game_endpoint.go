@@ -178,6 +178,22 @@ func registerGameRoutes(g *echo.Group, gs *services.GameService) {
 		if err != nil {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "game not found"})
 		}
+
+		// determine developer ownership
+		var devID int64
+
+		if claims.Role == "admin" {
+			// admin can change developer ownership
+			devID = req.DeveloperID
+		} else if claims.Role == "developer" {
+			// developer CANNOT change ownership
+			devID = existing.DeveloperID
+		} else {
+			return c.JSON(http.StatusForbidden, map[string]string{
+				"error": "only admin or developer roles can update games",
+			})
+		}
+
 		if claims.Role == "developer" {
 			// ensure the developer making the request owns the game
 			dev, err := gs.DeveloperRepo.GetByID(c.Request().Context(), existing.DeveloperID)
@@ -192,7 +208,7 @@ func registerGameRoutes(g *echo.Group, gs *services.GameService) {
 		}
 		update := &model.Game{
 			GameID:      id,
-			DeveloperID: req.DeveloperID,
+			DeveloperID: devID,
 			Title:       req.Title,
 			Price:       req.Price,
 			ReleaseDate: rd,

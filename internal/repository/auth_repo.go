@@ -39,8 +39,10 @@ func (r *AuthRepository) CreateUser(ctx context.Context, email, passwordhash, ro
 
 func (r *AuthRepository) GetByEmail(ctx context.Context, email string) (*model.Auth, error) {
 	var u model.Auth
-	query := `SELECT authid, email, passwordhash, role, created_at, deleted_at FROM userauth WHERE email=$1`
-	if err := r.DB.QueryRow(ctx, query, email).Scan(&u.AuthID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt, &u.DeletedAt); err != nil {
+	query := `SELECT authid, email, passwordhash, role, email_verified, created_at, deleted_at
+			FROM userauth
+			WHERE email=$1`
+	if err := r.DB.QueryRow(ctx, query, email).Scan(&u.AuthID, &u.Email, &u.PasswordHash, &u.Role, &u.EmailVerified, &u.CreatedAt, &u.DeletedAt); err != nil {
 		return nil, errors.New("user not found")
 	}
 	return &u, nil
@@ -124,4 +126,13 @@ func (r *AuthRepository) BanUser(ctx context.Context, authID int64) error {
 		return errors.New("user not found or already banned")
 	}
 	return nil
+}
+
+func (r *AuthRepository) SetEmailVerified(ctx context.Context, authID int64) error {
+	_, err := r.DB.Exec(ctx, `
+		UPDATE userauth
+		SET email_verified = TRUE
+		WHERE authid = $1
+	`, authID)
+	return err
 }

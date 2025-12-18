@@ -33,19 +33,6 @@ func registerCartRoutes(g *echo.Group, cs *services.CartService) {
 		return c.JSON(http.StatusOK, cart)
 	})
 
-	// POST /api/cart/checkout
-	p.POST("/cart/checkout", func(c echo.Context) error {
-		claims := middleware.GetClaims(c)
-		if claims == nil {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthenticated"})
-		}
-		orderID, err := cs.Checkout(c.Request().Context(), claims.AuthID)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
-		}
-		return c.JSON(http.StatusOK, map[string]interface{}{"orderid": orderID})
-	})
-
 	// ADD item
 	p.POST("", func(c echo.Context) error {
 		claims := middleware.GetClaims(c)
@@ -95,13 +82,4 @@ func registerCartRoutes(g *echo.Group, cs *services.CartService) {
 		return c.JSON(http.StatusOK, map[string]string{"message": "cleared"})
 	})
 
-	// CHECKOUT
-	p.POST("/checkout", func(c echo.Context) error {
-		claims := middleware.GetClaims(c)
-		orderID, err := cs.Checkout(c.Request().Context(), claims.AuthID)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
-		}
-		return c.JSON(http.StatusOK, map[string]interface{}{"orderid": orderID})
-	})
 }

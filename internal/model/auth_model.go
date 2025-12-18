@@ -9,4 +9,6 @@ type Auth struct {
 	Role         string     `json:"role"`
 	CreatedAt    *time.Time `json:"created_at,omitempty"`
 	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
+
+	EmailVerified bool `json:"email_verified"`
 }
