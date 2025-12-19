@@ -30,7 +30,7 @@ type MinimalUser struct {
 // CreateUser inserts a new user and returns the created authid
 func (r *AuthRepository) CreateUser(ctx context.Context, email, passwordhash, role string) (int64, error) {
 	var id int64
-	query := `INSERT INTO userauth (email, passwordhash, role, created_at) VALUES ($1, $2, $3, $4) RETURNING authid`
+	query := `INSERT INTO userauth (email, passwordhash, role, created_at, email_verified) VALUES ($1, $2, $3, $4, true) RETURNING authid`
 	if err := r.DB.QueryRow(ctx, query, email, passwordhash, role, time.Now()).Scan(&id); err != nil {
 		return 0, err
 	}
@@ -73,7 +73,7 @@ func (r *AuthRepository) ListUsersOnly(ctx context.Context) ([]MinimalUser, erro
                COALESCE(c.customerid, 0) AS customerid,
                (u.deleted_at IS NOT NULL) AS banned
         FROM userauth u
-        LEFT JOIN customer c ON c.authid = u.authid
+        LEFT JOIN customers c ON c.authid = u.authid
         WHERE u.role = 'user'
         ORDER BY u.authid;
     `
@@ -101,7 +101,7 @@ func (r *AuthRepository) GetUserOnlyByID(ctx context.Context, authID int64) (*Mi
                COALESCE(c.customerid, 0) AS customerid,
                (u.deleted_at IS NOT NULL) AS banned
         FROM userauth u
-        LEFT JOIN customer c ON c.authid = u.authid
+        LEFT JOIN customers c ON c.authid = u.authid
         WHERE u.role = 'user' AND u.authid = $1;
     `
 
@@ -124,6 +124,18 @@ func (r *AuthRepository) BanUser(ctx context.Context, authID int64) error {
 	}
 	if tag.RowsAffected() == 0 {
 		return errors.New("user not found or already banned")
+	}
+	return nil
+}
+
+func (r *AuthRepository) UnBanUser(ctx context.Context, authID int64) error {
+	query := `UPDATE userauth SET deleted_at=NULL WHERE authid=$1 AND deleted_at IS NOT NULL`
+	tag, err := r.DB.Exec(ctx, query, authID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("user not found or already unbanned")
 	}
 	return nil
 }

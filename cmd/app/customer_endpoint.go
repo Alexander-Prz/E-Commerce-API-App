@@ -18,7 +18,7 @@ type updateCustomerRequest struct {
 }
 
 // register customer routes (user self routes + admin user management)
-func registerCustomerRoutes(api *echo.Group, cs *services.CustomerService) {
+func registerCustomerRoutes(api *echo.Group, cs *services.CustomerService, as *services.AuthService) {
 	// User routes (require JWT)
 	userGrp := api.Group("/customers")
 	userGrp.Use(middleware.JWTMiddleware())
@@ -97,10 +97,24 @@ func registerCustomerRoutes(api *echo.Group, cs *services.CustomerService) {
 			return c.JSON(400, map[string]string{"error": "invalid id"})
 		}
 
-		if err := cs.BanUser(c.Request().Context(), id); err != nil {
+		if err := as.BanUser(c.Request().Context(), id); err != nil {
 			return c.JSON(400, map[string]string{"error": err.Error()})
 		}
 
 		return c.JSON(200, map[string]string{"message": "user banned"})
+	})
+
+	admin.POST("/users/:id/unban", func(c echo.Context) error {
+		idStr := c.Param("id")
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return c.JSON(400, map[string]string{"error": "invalid id"})
+		}
+
+		if err := as.UnBanUser(c.Request().Context(), id); err != nil {
+			return c.JSON(400, map[string]string{"error": err.Error()})
+		}
+
+		return c.JSON(200, map[string]string{"message": "user ban was lifted"})
 	})
 }

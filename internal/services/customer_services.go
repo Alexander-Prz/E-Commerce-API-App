@@ -38,7 +38,3 @@ func (s *CustomerService) GetByAuthID(ctx context.Context, authID int64) (*model
 func (s *CustomerService) UpdateSelf(ctx context.Context, customerID int64, fullname, address, phone *string) error {
 	return s.Customers.Update(ctx, customerID, fullname, address, phone)
 }
-
-func (s *CustomerService) BanUser(ctx context.Context, authID int64) error {
-	return s.Users.BanUser(ctx, authID)
-}

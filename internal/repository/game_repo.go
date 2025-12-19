@@ -27,10 +27,27 @@ func (r *GameRepository) CreateGame(ctx context.Context, g *model.Game) (int64, 
 	return id, nil
 }
 
+/*
 func (r *GameRepository) GetByID(ctx context.Context, id int64) (*model.Game, error) {
 	var g model.Game
 	query := `SELECT gameid, developerid, title, price, releasedate, created_at, deleted_at FROM games WHERE gameid=$1`
 	if err := r.DB.QueryRow(ctx, query, id).Scan(&g.GameID, &g.DeveloperID, &g.Title, &g.Price, &g.ReleaseDate, &g.CreatedAt, &g.DeletedAt); err != nil {
+		return nil, errors.New("game not found")
+	}
+	return &g, nil
+}
+*/
+
+func (r *GameRepository) GetByID(ctx context.Context, id int64) (*model.Game, error) {
+	var g model.Game
+	query := `
+		SELECT gameid, developerid, title, price, releasedate, created_at, deleted_at
+		FROM games
+		WHERE gameid=$1 AND deleted_at IS NULL
+	`
+	if err := r.DB.
+		QueryRow(ctx, query, id).
+		Scan(&g.GameID, &g.DeveloperID, &g.Title, &g.Price, &g.ReleaseDate, &g.CreatedAt, &g.DeletedAt); err != nil {
 		return nil, errors.New("game not found")
 	}
 	return &g, nil

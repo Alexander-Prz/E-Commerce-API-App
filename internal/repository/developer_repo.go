@@ -30,6 +30,15 @@ func (r *DeveloperRepository) CreateDeveloper(ctx context.Context, name string, 
 
 func (r *DeveloperRepository) GetByID(ctx context.Context, id int64) (*model.Developer, error) {
 	var d model.Developer
+	query := `SELECT developerid, developername, created_at, deleted_at FROM developers WHERE developerid=$1`
+	if err := r.DB.QueryRow(ctx, query, id).Scan(&d.DeveloperID, &d.DeveloperName, &d.CreatedAt, &d.DeletedAt); err != nil {
+		return nil, errors.New("developer not found")
+	}
+	return &d, nil
+}
+
+func (r *DeveloperRepository) GetByIDAdmin(ctx context.Context, id int64) (*model.Developer, error) {
+	var d model.Developer
 	query := `SELECT developerid, developername, authid, created_at, deleted_at FROM developers WHERE developerid=$1`
 	if err := r.DB.QueryRow(ctx, query, id).Scan(&d.DeveloperID, &d.DeveloperName, &d.AuthID, &d.CreatedAt, &d.DeletedAt); err != nil {
 		return nil, errors.New("developer not found")
@@ -48,6 +57,25 @@ func (r *DeveloperRepository) GetByAuthID(ctx context.Context, authID int64) (*m
 }
 
 func (r *DeveloperRepository) GetAll(ctx context.Context) ([]model.Developer, error) {
+	query := `SELECT developerid, developername, created_at, deleted_at FROM developers WHERE deleted_at IS NULL ORDER BY developerid`
+	rows, err := r.DB.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []model.Developer
+	for rows.Next() {
+		var d model.Developer
+		if err := rows.Scan(&d.DeveloperID, &d.DeveloperName, &d.CreatedAt, &d.DeletedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, d)
+	}
+	return list, nil
+}
+
+func (r *DeveloperRepository) GetAllAdmin(ctx context.Context) ([]model.Developer, error) {
 	query := `SELECT developerid, developername, authid, created_at, deleted_at FROM developers WHERE deleted_at IS NULL ORDER BY developerid`
 	rows, err := r.DB.Query(ctx, query)
 	if err != nil {

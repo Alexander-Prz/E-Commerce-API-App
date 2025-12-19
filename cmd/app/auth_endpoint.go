@@ -106,7 +106,7 @@ func loginHandler(authSvc *services.AuthService) echo.HandlerFunc {
 
 		return c.JSON(http.StatusOK, echo.Map{
 			"token":      token,
-			"expires_in": 24 * 3600,
+			"expires_in": 3600,
 			"user": echo.Map{
 				"authid":     user.AuthID,
 				"email":      user.Email,

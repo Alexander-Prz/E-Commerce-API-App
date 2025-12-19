@@ -12,11 +12,6 @@ import (
 
 type addCartRequest struct {
 	GameID int64 `json:"gameid"`
-	Qty    int   `json:"quantity"`
-}
-
-type updateCartRequest struct {
-	Qty int `json:"quantity"`
 }
 
 func registerCartRoutes(g *echo.Group, cs *services.CartService) {
@@ -36,31 +31,27 @@ func registerCartRoutes(g *echo.Group, cs *services.CartService) {
 	// ADD item
 	p.POST("", func(c echo.Context) error {
 		claims := middleware.GetClaims(c)
-		req := new(addCartRequest)
-		if err := c.Bind(req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
-		}
-		if req.Qty == 0 {
-			req.Qty = 1
-		}
-		if err := cs.Add(c.Request().Context(), claims.AuthID, req.GameID, req.Qty); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
-		}
-		return c.JSON(http.StatusCreated, map[string]string{"message": "added"})
-	})
 
-	// UPDATE quantity
-	p.PUT("/:gameid", func(c echo.Context) error {
-		claims := middleware.GetClaims(c)
-		gameID, _ := strconv.ParseInt(c.Param("gameid"), 10, 64)
-		req := new(updateCartRequest)
-		if err := c.Bind(req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		req := new(addCartRequest)
+		if err := c.Bind(req); err != nil || req.GameID == 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "invalid request",
+			})
 		}
-		if err := cs.Update(c.Request().Context(), claims.AuthID, gameID, req.Qty); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+
+		if err := cs.Add(
+			c.Request().Context(),
+			claims.AuthID,
+			req.GameID,
+		); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": err.Error(),
+			})
 		}
-		return c.JSON(http.StatusOK, map[string]string{"message": "updated"})
+
+		return c.JSON(http.StatusCreated, map[string]string{
+			"message": "added to cart",
+		})
 	})
 
 	// REMOVE item

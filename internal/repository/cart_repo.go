@@ -32,10 +32,23 @@ func (r *CartRepository) GetCustomerID(ctx context.Context, authID int64) (int64
 // findOpenOrder finds an order for customer where totalprice IS NULL and deleted_at IS NULL
 func (r *CartRepository) FindOpenOrder(ctx context.Context, customerID int64) (int64, error) {
 	var orderID int64
-	query := `SELECT orderid FROM orders WHERE customerid=$1 AND totalprice IS NULL AND deleted_at IS NULL LIMIT 1`
-	if err := r.DB.QueryRow(ctx, query, customerID).Scan(&orderID); err != nil {
+	query := `
+		SELECT orderid
+		FROM orders
+		WHERE customerid=$1
+		  AND totalprice IS NULL
+		  AND deleted_at IS NULL
+		LIMIT 1
+	`
+
+	err := r.DB.QueryRow(ctx, query, customerID).Scan(&orderID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, errors.New("no open cart")
+		}
 		return 0, err
 	}
+
 	return orderID, nil
 }
 
@@ -58,30 +71,31 @@ func (r *CartRepository) GetGameInfo(ctx context.Context, gameID int64) (title s
 	return title, price, nil
 }
 
-// addOrIncrementOrderItem inserts or increments an item quantity for an order
-func (r *CartRepository) AddOrIncrementOrderItem(ctx context.Context, orderID, gameID int64, qty int, priceAtPurchase float64) error {
-	// If orderitem exists, update quantity; else insert
+func (r *CartRepository) IsGameInCart(ctx context.Context, orderID, gameID int64) (bool, error) {
+
 	query := `
-		INSERT INTO orderitems (orderid, gameid, quantity, priceatpurchase, created_at)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (orderid, gameid)
-		DO UPDATE SET quantity = orderitems.quantity + EXCLUDED.quantity
+		SELECT EXISTS (
+			SELECT 1
+			FROM orderitems
+			WHERE orderid=$1
+			  AND gameid=$2
+		)
 	`
-	_, err := r.DB.Exec(ctx, query, orderID, gameID, qty, priceAtPurchase, time.Now())
-	return err
+	var exists bool
+	err := r.DB.QueryRow(ctx, query, orderID, gameID).Scan(&exists)
+	return exists, err
 }
 
-// setOrderItemQuantity sets exact quantity for an orderitem
-func (r *CartRepository) SetOrderItemQuantity(ctx context.Context, orderID, gameID int64, qty int) error {
-	query := `UPDATE orderitems SET quantity=$1 WHERE orderid=$2 AND gameid=$3 AND deleted_at IS NULL`
-	tag, err := r.DB.Exec(ctx, query, qty, orderID, gameID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return errors.New("cart item not found")
-	}
-	return nil
+func (r *CartRepository) InsertOrderItem(ctx context.Context, orderID, gameID int64, price float64) error {
+
+	query := `
+		INSERT INTO orderitems
+			(orderid, gameid, quantity, priceatpurchase, created_at)
+		VALUES
+			($1, $2, 1, $3, $4)
+	`
+	_, err := r.DB.Exec(ctx, query, orderID, gameID, price, time.Now())
+	return err
 }
 
 // removeOrderItem removes a specific order item
@@ -104,7 +118,7 @@ func (r *CartRepository) GetOrderItems(ctx context.Context, orderID int64) ([]mo
 		SELECT oi.orderitemid, oi.gameid, g.title, oi.quantity, oi.priceatpurchase
 		FROM orderitems oi
 		JOIN games g ON g.gameid = oi.gameid
-		WHERE oi.orderid=$1 AND oi.deleted_at IS NULL
+		WHERE oi.orderid=$1
 	`
 	rows, err := r.DB.Query(ctx, query, orderID)
 	if err != nil {

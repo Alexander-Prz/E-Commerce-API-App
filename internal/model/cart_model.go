@@ -4,12 +4,13 @@ import "time"
 
 // Order represents an entry in the orders table
 type Order struct {
-	OrderID    int64      `json:"orderid"`
-	CustomerID int64      `json:"customerid"`
-	OrderDate  *time.Time `json:"orderdate,omitempty"`
-	TotalPrice *float64   `json:"totalprice,omitempty"`
-	CreatedAt  *time.Time `json:"created_at,omitempty"`
-	DeletedAt  *time.Time `json:"deleted_at,omitempty"`
+	OrderID     int64      `json:"orderid"`
+	CustomerID  int64      `json:"customerid"`
+	OrderStatus string     `json:"orderstatus"`
+	OrderDate   *time.Time `json:"orderdate,omitempty"`
+	TotalPrice  *float64   `json:"totalprice,omitempty"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
 }
 
 // OrderItem represents a row in the orderitems table

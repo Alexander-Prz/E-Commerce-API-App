@@ -120,7 +120,7 @@ func (r *CustomerGamesRepository) ListOwnedGames(ctx context.Context, customerID
 // ListOrders returns all completed order headers
 func (r *CustomerGamesRepository) ListOrders(ctx context.Context, customerID int64) ([]model.Order, error) {
 	query := `
-        SELECT orderid, customerid, orderdate, totalprice, created_at
+        SELECT orderid, customerid, orderstatus, orderdate, totalprice, created_at
         FROM orders
         WHERE customerid=$1 AND totalprice IS NOT NULL
         ORDER BY created_at DESC
@@ -134,7 +134,7 @@ func (r *CustomerGamesRepository) ListOrders(ctx context.Context, customerID int
 	var list []model.Order
 	for rows.Next() {
 		var o model.Order
-		if err := rows.Scan(&o.OrderID, &o.CustomerID, &o.OrderDate, &o.TotalPrice, &o.CreatedAt); err != nil {
+		if err := rows.Scan(&o.OrderID, &o.CustomerID, &o.OrderStatus, &o.OrderDate, &o.TotalPrice, &o.CreatedAt); err != nil {
 			return nil, err
 		}
 		list = append(list, o)
@@ -159,7 +159,7 @@ func (r *CustomerGamesRepository) GetOrderDetails(ctx context.Context, customerI
 	q2 := `
         SELECT orderitemid, gameid, quantity, priceatpurchase, created_at
         FROM orderitems
-        WHERE orderid=$1 AND deleted_at IS NULL
+        WHERE orderid=$1
     `
 	rows, err := r.DB.Query(ctx, q2, orderID)
 	if err != nil {
@@ -221,7 +221,7 @@ func (r *CustomerGamesRepository) GetOrderDetailsAdmin(ctx context.Context, orde
 	q2 := `
         SELECT orderitemid, gameid, quantity, priceatpurchase, created_at
         FROM orderitems
-        WHERE orderid=$1 AND deleted_at IS NULL
+        WHERE orderid=$1
     `
 	rows, err := r.DB.Query(ctx, q2, orderID)
 	if err != nil {
@@ -239,4 +239,28 @@ func (r *CustomerGamesRepository) GetOrderDetailsAdmin(ctx context.Context, orde
 	}
 
 	return &o, items, nil
+}
+
+func (r *CustomerGamesRepository) ListOwnedGameIDs(
+	ctx context.Context,
+	customerID int64,
+) (map[int64]bool, error) {
+	rows, err := r.DB.Query(ctx,
+		`SELECT gameid FROM customer_games WHERE customerid=$1`,
+		customerID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[int64]bool)
+	for rows.Next() {
+		var gid int64
+		if err := rows.Scan(&gid); err != nil {
+			return nil, err
+		}
+		out[gid] = true
+	}
+	return out, nil
 }

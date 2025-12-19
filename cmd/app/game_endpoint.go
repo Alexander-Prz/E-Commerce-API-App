@@ -27,6 +27,15 @@ type updateGameRequest struct {
 	ReleaseDate string  `json:"releasedate,omitempty"`
 }
 
+type gameResponse struct {
+	GameID      int64      `json:"gameid"`
+	DeveloperID int64      `json:"developerid"`
+	Title       string     `json:"title"`
+	Price       float64    `json:"price"`
+	ReleaseDate *time.Time `json:"releasedate,omitempty"`
+	Status      string     `json:"status,omitempty"`
+}
+
 // registerGameRoutes mounts game endpoints to the provided group.
 // Public:
 //
@@ -41,36 +50,83 @@ type updateGameRequest struct {
 func registerGameRoutes(g *echo.Group, gs *services.GameService) {
 	// public list
 	g.GET("/games", func(c echo.Context) error {
-		// If request includes Authorization header and it belongs to a developer,
-		// disallow this endpoint and instruct to use developer-only endpoint.
+		ctx := c.Request().Context()
 		claims := middleware.TryGetClaimsFromAuthHeader(c)
-		if claims != nil && claims.Role == "developer" {
-			return c.JSON(http.StatusForbidden, map[string]string{"error": "developers must use /api/developer/games to view their games"})
-		}
 
 		limitStr := c.QueryParam("limit")
 		offsetStr := c.QueryParam("offset")
 		limit, _ := strconv.Atoi(limitStr)
 		offset, _ := strconv.Atoi(offsetStr)
-		list, err := gs.ListGames(c.Request().Context(), limit, offset)
+
+		list, ownedMap, err := gs.ListGamesWithOwnership(
+			ctx,
+			getAuthIDPtr(claims),
+			getRolePtr(claims),
+			limit,
+			offset,
+		)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": err.Error(),
+			})
 		}
-		return c.JSON(http.StatusOK, list)
+
+		resp := make([]gameResponse, 0, len(list))
+		for _, g := range list {
+			gr := gameResponse{
+				GameID:      g.GameID,
+				DeveloperID: g.DeveloperID,
+				Title:       g.Title,
+				Price:       g.Price,
+				ReleaseDate: g.ReleaseDate,
+			}
+			if ownedMap != nil && ownedMap[g.GameID] {
+				gr.Status = "owned"
+			}
+			resp = append(resp, gr)
+		}
+
+		return c.JSON(http.StatusOK, resp)
 	})
 
 	// public get
 	g.GET("/games/:id", func(c echo.Context) error {
+		ctx := c.Request().Context()
+		claims := middleware.TryGetClaimsFromAuthHeader(c)
+
 		idStr := c.Param("id")
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "invalid id",
+			})
 		}
-		game, err := gs.GetGame(c.Request().Context(), id)
+
+		game, owned, err := gs.GetGameWithOwnership(
+			ctx,
+			id,
+			getAuthIDPtr(claims),
+			getRolePtr(claims),
+		)
 		if err != nil {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "game not found"})
+			return c.JSON(http.StatusNotFound, map[string]string{
+				"error": "game not found",
+			})
 		}
-		return c.JSON(http.StatusOK, game)
+
+		resp := gameResponse{
+			GameID:      game.GameID,
+			DeveloperID: game.DeveloperID,
+			Title:       game.Title,
+			Price:       game.Price,
+			ReleaseDate: game.ReleaseDate,
+		}
+
+		if owned {
+			resp.Status = "owned"
+		}
+
+		return c.JSON(http.StatusOK, resp)
 	})
 
 	// developer-only "my games" endpoint (protected)
@@ -250,4 +306,18 @@ func registerGameRoutes(g *echo.Group, gs *services.GameService) {
 		}
 		return c.JSON(http.StatusOK, map[string]string{"message": "deleted"})
 	})
+}
+
+func getAuthIDPtr(c *middleware.Claims) *int64 {
+	if c == nil {
+		return nil
+	}
+	return &c.AuthID
+}
+
+func getRolePtr(c *middleware.Claims) *string {
+	if c == nil {
+		return nil
+	}
+	return &c.Role
 }

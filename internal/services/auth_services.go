@@ -198,3 +198,11 @@ func (s *AuthService) VerifyEmail(ctx context.Context, token string) error {
 	_ = s.VerifyRepo.Delete(ctx, token)
 	return nil
 }
+
+func (s *AuthService) BanUser(ctx context.Context, authID int64) error {
+	return s.Auths.BanUser(ctx, authID)
+}
+
+func (s *AuthService) UnBanUser(ctx context.Context, authID int64) error {
+	return s.Auths.UnBanUser(ctx, authID)
+}

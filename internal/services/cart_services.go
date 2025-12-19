@@ -27,34 +27,51 @@ func NewCartService(r *repository.CartRepository, or *repository.OrderRepository
 	}
 }
 
-// Add adds qty to cart for the authenticated user's authid
-func (s *CartService) Add(ctx context.Context, authID, gameID int64, qty int) error {
-	if qty <= 0 {
-		return errors.New("quantity must be > 0")
-	}
-	// map authid -> customerid
+func (s *CartService) Add(ctx context.Context, authID, gameID int64) error {
+	// resolve customer
 	cid, err := s.Repo.GetCustomerID(ctx, authID)
 	if err != nil {
 		return err
 	}
-	// get or create order (open cart)
+
+	// 🚨 block owned games
+	owned, err := s.CustomerGamesRepo.ExistsAnyOwned(ctx, cid, []int64{gameID})
+	if err != nil {
+		return err
+	}
+	if owned != 0 {
+		return errors.New("game already owned")
+	}
+
+	// get or create open cart
 	orderID, err := s.Repo.FindOpenOrder(ctx, cid)
 	if err != nil {
-		// create new order
 		orderID, err = s.Repo.CreateOpenOrder(ctx, cid)
 		if err != nil {
 			return err
 		}
 	}
-	// get current price for game
+
+	// 🚨 block duplicate cart entry
+	exists, err := s.Repo.IsGameInCart(ctx, orderID, gameID)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return errors.New("game already in your cart")
+	}
+
+	// get price
 	_, price, err := s.Repo.GetGameInfo(ctx, gameID)
 	if err != nil {
 		return err
 	}
-	// add or increment item
-	return s.Repo.AddOrIncrementOrderItem(ctx, orderID, gameID, qty, price)
+
+	// insert single item (qty = 1)
+	return s.Repo.InsertOrderItem(ctx, orderID, gameID, price)
 }
 
+/* ARTIFACT
 // Update sets quantity for an item in the cart
 func (s *CartService) Update(ctx context.Context, authID, gameID int64, qty int) error {
 	if qty <= 0 {
@@ -70,6 +87,7 @@ func (s *CartService) Update(ctx context.Context, authID, gameID int64, qty int)
 	}
 	return s.Repo.SetOrderItemQuantity(ctx, orderID, gameID, qty)
 }
+*/
 
 // Remove removes an item from the cart
 func (s *CartService) Remove(ctx context.Context, authID, gameID int64) error {
@@ -186,11 +204,6 @@ func (s *CartService) Checkout(ctx context.Context, authID int64) (int64, error)
 	// 1) finalize order (update totalprice and orderdate) using tx method
 	if err := s.Repo.CheckoutOrderTx(ctx, tx, orderID, total); err != nil {
 		return 0, fmt.Errorf("finalize order: %w", err)
-	}
-
-	// 2) insert customer_games (ownership) using tx
-	if err := s.CustomerGamesRepo.CreateCustomerGamesTx(ctx, tx, cid, gameIDs); err != nil {
-		return 0, fmt.Errorf("record ownership: %w", err)
 	}
 
 	// Commit

@@ -40,6 +40,10 @@ func (s *DeveloperService) ListDevelopers(ctx context.Context) ([]model.Develope
 	return s.Repo.GetAll(ctx)
 }
 
+func (s *DeveloperService) ListDevelopersAdmin(ctx context.Context) ([]model.Developer, error) {
+	return s.Repo.GetAllAdmin(ctx)
+}
+
 func (s *DeveloperService) UpdateDeveloper(ctx context.Context, id int64, name string, authID *int64) error {
 	name = strings.TrimSpace(name)
 	if name == "" {

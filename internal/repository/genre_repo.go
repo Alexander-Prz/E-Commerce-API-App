@@ -29,15 +29,15 @@ func (r *GenreRepository) Create(ctx context.Context, name string) (int64, error
 
 func (r *GenreRepository) GetByID(ctx context.Context, id int64) (*model.Genre, error) {
 	var g model.Genre
-	query := `SELECT genreid, genrename, created_at, deleted_at FROM genres WHERE genreid=$1`
-	if err := r.DB.QueryRow(ctx, query, id).Scan(&g.GenreID, &g.GenreName, &g.CreatedAt, &g.DeletedAt); err != nil {
+	query := `SELECT genreid, genrename FROM genres WHERE genreid=$1`
+	if err := r.DB.QueryRow(ctx, query, id).Scan(&g.GenreID, &g.GenreName); err != nil {
 		return nil, errors.New("genre not found")
 	}
 	return &g, nil
 }
 
 func (r *GenreRepository) List(ctx context.Context) ([]model.Genre, error) {
-	query := `SELECT genreid, genrename, created_at, deleted_at FROM genres WHERE deleted_at IS NULL ORDER BY genreid`
+	query := `SELECT genreid, genrename FROM genres WHERE deleted_at IS NULL ORDER BY genreid`
 	rows, err := r.DB.Query(ctx, query)
 	if err != nil {
 		return nil, err
@@ -47,7 +47,7 @@ func (r *GenreRepository) List(ctx context.Context) ([]model.Genre, error) {
 	var out []model.Genre
 	for rows.Next() {
 		var g model.Genre
-		if err := rows.Scan(&g.GenreID, &g.GenreName, &g.CreatedAt, &g.DeletedAt); err != nil {
+		if err := rows.Scan(&g.GenreID, &g.GenreName); err != nil {
 			return nil, err
 		}
 		out = append(out, g)
