@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 
 	mt "GameStoreAPI/external/midtrans"
 	"GameStoreAPI/internal/repository"
@@ -109,6 +108,7 @@ func (s *PaymentService) CreateSnapPayment(
 	return resp.RedirectURL, nil
 }
 
+/*
 func (s *PaymentService) HandleMidtransNotification(ctx context.Context, payload map[string]interface{}) error {
 
 	orderIDStr, ok := payload["order_id"].(string)
@@ -165,7 +165,8 @@ func (s *PaymentService) HandleMidtransNotification(ctx context.Context, payload
 
 	return nil
 }
-
+*/
+/*
 func (s *PaymentService) HandleMidtransWebhook(
 	ctx context.Context,
 	payload map[string]interface{},
@@ -190,6 +191,62 @@ func (s *PaymentService) HandleMidtransWebhook(
 
 	// 2️⃣ grant owned games
 	return s.grantGamesFromOrder(ctx, orderID)
+}
+*/
+
+func (s *PaymentService) HandleMidtransEvent(
+	ctx context.Context,
+	payload map[string]interface{},
+	verifySignature bool,
+) error {
+
+	orderIDStr, ok := payload["order_id"].(string)
+	if !ok {
+		return errors.New("missing order_id")
+	}
+
+	// Extract internal order ID
+	var orderID int64
+	if _, err := fmt.Sscanf(orderIDStr, "ORDER-%d-", &orderID); err != nil {
+		return errors.New("invalid order reference")
+	}
+
+	if verifySignature {
+		statusCode, _ := payload["status_code"].(string)
+		grossAmount, _ := payload["gross_amount"].(string)
+		signature, _ := payload["signature_key"].(string)
+
+		if !mt.VerifySignature(
+			orderIDStr,
+			statusCode,
+			grossAmount,
+			signature,
+			os.Getenv("MIDTRANS_SERVER_KEY"),
+		) {
+			return errors.New("invalid signature")
+		}
+	}
+
+	transactionStatus, _ := payload["transaction_status"].(string)
+	fraudStatus, _ := payload["fraud_status"].(string)
+
+	switch transactionStatus {
+
+	case "settlement":
+		return s.finalizePayment(ctx, orderID, payload)
+
+	case "capture":
+		if fraudStatus == "accept" {
+			return s.finalizePayment(ctx, orderID, payload)
+		}
+		return nil
+
+	case "expire", "cancel", "deny":
+		return s.markPaymentFailed(ctx, orderID, payload)
+
+	default:
+		return nil
+	}
 }
 
 func (s *PaymentService) markPaymentPaid(
@@ -283,6 +340,74 @@ func (s *PaymentService) finalizePayment(
 
 	// 2️⃣ Extract Midtrans fields
 	provider := "midtrans"
+	providerRef, _ := payload["transaction_id"].(string)
+
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	// 3️⃣ Get purchased games
+	gameIDs, err := s.OrderRepo.GetGameIDsByOrderID(ctx, orderID)
+	if err != nil {
+		return err
+	}
+
+	// 4️⃣ Begin transaction
+	tx, err := s.PaymentRepo.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// 5️⃣ Mark payment paid
+	if err := s.PaymentRepo.MarkPaidTx(
+		ctx,
+		tx,
+		orderID,
+		provider,
+		providerRef,
+		rawPayload,
+	); err != nil {
+		return err
+	}
+
+	// ✅ 6️⃣ MARK ORDER AS PAID  ← THIS WAS MISSING
+	if err := s.OrderRepo.MarkPaidTx(ctx, tx, orderID); err != nil {
+		return err
+	}
+
+	// 7️⃣ Grant games
+	if err := s.CustomerGamesRepo.CreateCustomerGamesTx(
+		ctx,
+		tx,
+		order.CustomerID,
+		gameIDs,
+	); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+/*
+func (s *PaymentService) finalizePayment(
+	ctx context.Context,
+	orderID int64,
+	payload map[string]interface{},
+) error {
+
+	// 1️⃣ Idempotency guard
+	order, err := s.OrderRepo.GetOrderByID(ctx, orderID)
+	if err != nil {
+		return err
+	}
+	if order.OrderStatus == "Paid" {
+		return nil
+	}
+
+	// 2️⃣ Extract Midtrans fields
+	provider := "midtrans"
 
 	providerRef, _ := payload["transaction_id"].(string)
 
@@ -328,7 +453,8 @@ func (s *PaymentService) finalizePayment(
 
 	return tx.Commit(ctx)
 }
-
+*/
+/*
 func (s *PaymentService) grantGamesFromOrder(
 	ctx context.Context,
 	orderID int64,
@@ -350,3 +476,4 @@ func (s *PaymentService) grantGamesFromOrder(
 		gameIDs,
 	)
 }
+*/

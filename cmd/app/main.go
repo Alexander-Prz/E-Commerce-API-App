@@ -85,7 +85,7 @@ func main() {
 	e.Use(echomw.Logger())
 	e.Use(echomw.Recover())
 
-	api := e.Group("/api")
+	api := e.Group("/game-store")
 
 	// ======================
 	// ROUTES (ONLY REGISTRATION)

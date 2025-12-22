@@ -26,9 +26,10 @@ func registerPaymentRoutes(g *echo.Group, ps *services.PaymentService) {
 			})
 		}
 
-		if err := ps.HandleMidtransNotification(
+		if err := ps.HandleMidtransEvent(
 			c.Request().Context(),
 			payload,
+			true,
 		); err != nil {
 			// IMPORTANT:
 			// Midtrans requires HTTP 200 or it will retry
@@ -51,9 +52,10 @@ func registerPaymentRoutes(g *echo.Group, ps *services.PaymentService) {
 			})
 		}
 
-		if err := ps.HandleMidtransWebhook(
+		if err := ps.HandleMidtransEvent(
 			c.Request().Context(),
 			payload,
+			false,
 		); err != nil {
 			return c.JSON(http.StatusBadRequest, echo.Map{
 				"error": err.Error(),
